@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM gcr.io/google_containers/nginx-slim:0.13
+FROM cr.loongnix.cn/library/debian:buster-slim
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
   diffutils \
   ssl-cert \
+  curl \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* \
   && make-ssl-cert generate-default-snakeoil --force-overwrite
@@ -24,8 +25,11 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
 COPY . /
 
 # https://blog.phusion.nl/2015/01/20/docker-and-the-pid-1-zombie-reaping-problem
-RUN curl -sSL -o /sbin/dumb-init https://github.com/Yelp/dumb-init/releases/download/v1.2.0/dumb-init_1.2.0_amd64 && \
-  chmod +x /sbin/dumb-init
+
+#curl -sSL -o dumb-init https://github.com/Loongson-Cloud-Community/Yelp_dumb-init/releases/download/v1.2.0/dumb-init-loong64
+#RUN curl -sSL -o /sbin/dumb-init https://github.com/Loongson-Cloud-Community/Yelp_dumb-init/releases/download/v1.2.0/dumb-init-loong64 && \
+#  chmod +x /sbin/dumb-init
+RUN mv /dumb-init /sbin/dumb-init && chmod +x /sbin/dumb-init
 
 ENTRYPOINT ["/sbin/dumb-init", "--"]
 
