@@ -13,9 +13,7 @@
 # limitations under the License.
 
 
-FROM BASEIMAGE
-
-CROSS_BUILD_COPY qemu-ARCH-static /usr/bin/
+FROM cr.loongnix.cn/library/debian:buster
 
 COPY build.sh /tmp
 

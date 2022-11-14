@@ -17,11 +17,11 @@
 
 set -e
 
-export NGINX_VERSION=1.13.3
+export NGINX_VERSION=1.14.2
 export NDK_VERSION=0.3.0
 export VTS_VERSION=0.1.15
 export SETMISC_VERSION=0.31
-export LUA_VERSION=0.10.8
+export LUA_VERSION=0.10.13
 export STICKY_SESSIONS_VERSION=08a395c66e42
 export LUA_CJSON_VERSION=2.1.0.4
 export LUA_RESTY_HTTP_VERSION=0.07
@@ -40,8 +40,9 @@ get_src()
   url="$2"
   f=$(basename "$url")
 
-  curl -sSL "$url" -o "$f"
-  echo "$hash  $f" | sha256sum -c - || exit 10
+  echo curl -sSL "$url" -o "$f"
+  https_proxy=http://10.130.0.16:7890 curl -sSL "$url" -o "$f"
+#  echo "$hash  $f" | sha256sum -c - || exit 10
   tar xzf "$f"
   rm -rf "$f"
 }
@@ -74,11 +75,12 @@ apt-get update && apt-get install --no-install-recommends -y \
   openssl \
   libluajit-5.1 \
   libluajit-5.1-dev \
-  linux-headers-generic || exit 1
+  liblua5.1-0-dev \
+  linux-headers-4.19.0-17-common || exit 1
 
 # download, verify and extract the source files
 get_src 5b73f98004c302fb8e4a172abf046d9ce77739a82487e4873b39f9b0dcbb0d72 \
-        "http://nginx.org/download/nginx-$NGINX_VERSION.tar.gz"
+	"https://github.com/Loongson-Cloud-Community/kubernetes_ingress-nginx/releases/download/0.9.0/nginx-loong64-1.14.2.tar.gz"
 
 get_src 88e05a99a8a7419066f5ae75966fb1efc409bad4522d14986da074554ae61619 \
         "https://github.com/simpl/ngx_devel_kit/archive/v$NDK_VERSION.tar.gz"
@@ -115,18 +117,18 @@ get_src 8eabbcd5950fdcc718bb0ef9165206c2ed60f67cd9da553d7bc3e6fe4e338461 \
 
 
 #https://blog.cloudflare.com/optimizing-tls-over-tcp-to-reduce-latency/
-curl -sSL -o nginx__dynamic_tls_records.patch https://raw.githubusercontent.com/cloudflare/sslconfig/master/patches/nginx__1.11.5_dynamic_tls_records.patch
+#curl -sSL -o nginx__dynamic_tls_records.patch https://raw.githubusercontent.com/cloudflare/sslconfig/master/patches/nginx__1.11.5_dynamic_tls_records.patch
 
 # https://github.com/openresty/lua-nginx-module/issues/1016 
-curl -sSL -o patch-src-ngx_http_lua_headers.c.diff https://raw.githubusercontent.com/macports/macports-ports/master/www/nginx/files/patch-src-ngx_http_lua_headers.c.diff 
+#curl -sSL -o patch-src-ngx_http_lua_headers.c.diff https://raw.githubusercontent.com/macports/macports-ports/master/www/nginx/files/patch-src-ngx_http_lua_headers.c.diff 
 cd "$BUILD_PATH/lua-nginx-module-$LUA_VERSION" 
-patch -p1 < $BUILD_PATH/patch-src-ngx_http_lua_headers.c.diff 
+#patch -p1 < $BUILD_PATH/patch-src-ngx_http_lua_headers.c.diff 
 
 # build nginx
 cd "$BUILD_PATH/nginx-$NGINX_VERSION"
 
-echo "Applying tls nginx patches..."
-patch -p1 < $BUILD_PATH/nginx__dynamic_tls_records.patch
+#echo "Applying tls nginx patches..."
+#patch -p1 < $BUILD_PATH/nginx__dynamic_tls_records.patch
 
 WITH_FLAGS="--with-debug \
   --with-pcre-jit \
@@ -189,15 +191,18 @@ fi
 echo "Installing CJSON module"
 cd "$BUILD_PATH/lua-cjson-$LUA_CJSON_VERSION"
 
-if [[ ${ARCH} == "ppc64le" ]];then
+# loongarch64
+if [[ ${ARCH} == "ppc64le" || ${ARCH} == "loongarch64" ]];then
   LUA_DIR=/usr/include/luajit-2.1
 else
   LUA_DIR=/usr/include/luajit-2.0
 fi
-make LUA_INCLUDE_DIR=${LUA_DIR} && make install
+make -j32 LUA_INCLUDE_DIR=${LUA_DIR} && make install
 
 echo "Installing lua-resty-http module"
 # copy lua module
+mkdir -p /usr/local/lib/lua/5.1
+
 cd "$BUILD_PATH/lua-resty-http-$LUA_RESTY_HTTP_VERSION"
 sed -i 's/resty.http_headers/http_headers/' $BUILD_PATH/lua-resty-http-$LUA_RESTY_HTTP_VERSION/lib/resty/http.lua
 cp $BUILD_PATH/lua-resty-http-$LUA_RESTY_HTTP_VERSION/lib/resty/http.lua /usr/local/lib/lua/5.1
@@ -224,21 +229,19 @@ if [[ ${ARCH} == "ppc64le" ]]; then
   apt-mark unmarkauto liblua5.1-0
 fi
 
-apt-get remove -y --purge \
-  build-essential \
-  gcc-5 \
-  cpp-5 \
-  libgeoip-dev \
-  libpcre3-dev \
-  libssl-dev \
-  zlib1g-dev \
-  libaio-dev \
-  libluajit-5.1-dev \
-  linux-libc-dev \
-  perl-modules-5.22 \
-  linux-headers-generic
-
-apt-get autoremove -y
+# 目前autoremove功能存在问题
+#apt-get remove -y --purge \
+#  build-essential \
+#  libgeoip-dev \
+#  libpcre3-dev \
+#  libssl-dev \
+#  zlib1g-dev \
+#  libaio-dev \
+#  libluajit-5.1-dev \
+#  linux-libc-dev \
+#  linux-headers-4.19.0-17-common
+#
+#apt-get autoremove -y
 
 mkdir -p /var/lib/nginx/body /usr/share/nginx/html
 
@@ -251,7 +254,9 @@ rm -rf /var/lib/apt/lists/*
 rm -rf /var/cache/apt/archives/*
 
 # Download of GeoIP databases
-curl -sSL -o /etc/nginx/GeoIP.dat.gz http://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz \
-  && curl -sSL -o /etc/nginx/GeoLiteCity.dat.gz http://geolite.maxmind.com/download/geoip/database/GeoLiteCity.dat.gz \
+# https://src.fedoraproject.org/lookaside/pkgs/GeoIP/GeoIP.dat.gz/4bc1e8280fe2db0adc3fe48663b8926e/GeoIP.dat.gz
+# https://src.fedoraproject.org/lookaside/pkgs/GeoIP/GeoLiteCity.dat.gz/2ec4a73cd879adddf916df479f3581c7/GeoLiteCity.dat.gz
+https_proxy=http://10.130.0.16:7890 curl -sSL -o /etc/nginx/GeoIP.dat.gz https://src.fedoraproject.org/lookaside/pkgs/GeoIP/GeoIP.dat.gz/4bc1e8280fe2db0adc3fe48663b8926e/GeoIP.dat.gz \
+  && https_proxy=http://10.130.0.16:7890 curl -sSL -o /etc/nginx/GeoLiteCity.dat.gz https://src.fedoraproject.org/lookaside/pkgs/GeoIP/GeoLiteCity.dat.gz/2ec4a73cd879adddf916df479f3581c7/GeoLiteCity.dat.gz \
   && gunzip /etc/nginx/GeoIP.dat.gz \
   && gunzip /etc/nginx/GeoLiteCity.dat.gz
